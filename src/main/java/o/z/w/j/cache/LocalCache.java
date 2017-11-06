@@ -134,9 +134,9 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 					K e = entry.getKey();
 					int hashCode = e.hashCode();
 					if (hashCode == hash){
-						V oldValue = entry.getValue();
-						setValue(entry,value,new Date().getTime());
-						return oldValue;
+						ValueReference<K,V> oldValue = entry.getValue();
+						setValue(entry,oldValue,new Date().getTime());
+						return oldValue.get(key);
 					}
 				}
 				ReferenceEntry<K,V> newEntry = newEntry(key,hash,first);
@@ -148,7 +148,7 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 		}
 
 		private void addNewEntry(ReferenceEntry<K, V> newEntry, V value, long time, ReferenceEntry<K, V> preEntry,int index) {
-			newEntry.setValue(value);
+			newEntry.setValue(new StrongValueReference<K, V>(value));
 			newEntry.setTime(time);
 			if (preEntry!=null)
 				preEntry.setNext(newEntry);
@@ -190,7 +190,7 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 			array.set(index,arrayHead);
 		}
 
-		private void setValue(ReferenceEntry<K, V> newEntry, V value, long time) {
+		private void setValue(ReferenceEntry<K, V> newEntry, ValueReference<K,V> value, long time) {
 			newEntry.setValue(value);
 			newEntry.setTime(time);
 			accessQueue.add(newEntry);
@@ -201,16 +201,33 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 		}
 
 		public V get(K key, int hash, CacheLoader<K,V> loader) {
-			preWriteCleanup(new Date().getTime());
-			ReferenceEntry<K,V> entry = getEntry(key,hash);
-			if (entry != null){
-				accessQueue.add(entry);
-				return entry.getValue();
-			}else{
-				V value = loader.load(key);
-				put(key,hash,value);
-				return value;
+			long time = new Date().getTime();
+			preWriteCleanup(time);
+			ReferenceEntry<K,V> entry = null;
+			lock();
+			try {
+				entry = getEntry(key,hash);
+				if (entry != null  && ( (entry.getTime() + this.map.expireTime) >= time ) ){
+					accessQueue.add(entry);
+					return (entry.getValue() == null) ? null : entry.getValue().get(key) ;
+				}else{
+					int index = hash & (table.length() - 1);
+					entry = ( entry != null && accessQueue.remove(entry) ) ?
+							entry : newEntry(key, hash, table.get(index));
+					entry.setValue(new LoadingValueReference<K, V>(loader,key));
+					this.table.set(index,entry);
+				}
+			}finally {
+				unlock();
 			}
+			return loadSync(entry);
+		}
+
+		private V loadSync(ReferenceEntry<K, V> entry) {
+			ValueReference<K, V> value = entry.getValue();
+			V result = value.get(entry.getKey());
+			entry.setTime(new Date().getTime());
+			return result;
 		}
 
 		private void addNewEntry(ReferenceEntry<K, V> entry) {
