@@ -6,7 +6,9 @@ package o.z.w.j.cache;
 
 import java.util.AbstractMap;
 import java.util.Date;
+import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReferenceArray;
@@ -107,8 +109,11 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 
 		final LocalCache<K, V> map;
 
+		final Queue<ReferenceEntry<K,V>> accessQueue;
+
 		Segment(LocalCache<K,V> map,int size){
 			this.map = map;
+			this.accessQueue = new ConcurrentLinkedQueue<>();
 			table = newEntryArray(size);
 		}
 
@@ -150,33 +155,45 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 			else{
 				this.table.set(index,newEntry);
 			}
+			accessQueue.add(newEntry);
 		}
 
 		private void preWriteCleanup(long time) {
-			AtomicReferenceArray<ReferenceEntry<K, V>> t = this.table;
-			if (table.length() > 0){
-				for (int i = 0; i < table.length(); i++){
-					ReferenceEntry<K, V> entry = table.get(i);
-					ReferenceEntry<K,V> preEntry = null;
-					for (ReferenceEntry<K,V> e = entry; e !=null; e=e.next() ){
-						if (e.getTime() + map.expireTime < time){
-							if (preEntry==null){
-								table.set(i,null);
-								break;
-							}else{
-								preEntry.setNext(e.next());
-								e = preEntry;
-							}
-						}
-						preEntry=e;
-					}
-				}
+			ReferenceEntry<K,V> peek = null;
+			while( (peek = accessQueue.peek()) !=null && ( peek.getTime() + map.expireTime < time ) ){
+				removeFromArray(peek);
+				accessQueue.remove(peek);
 			}
+		}
+
+		private void removeFromArray(ReferenceEntry<K, V> peek) {
+			K key = peek.getKey();
+			int hash = key.hashCode();
+			ReferenceEntry<K,V> arrayHead = null;
+			AtomicReferenceArray<ReferenceEntry<K, V>> array = this.table;
+			int index = hash & (table.length() - 1);
+			ReferenceEntry<K, V> first = array.get(index);
+			ReferenceEntry<K,V> preEntry = null;
+			for ( ReferenceEntry<K,V> entry = first; entry != null; entry = entry.next() ) {
+				if (entry == peek) {
+					if (entry == first) {
+						arrayHead = entry.next();
+					} else {
+						preEntry.setNext(entry.next());
+						arrayHead = first;
+					}
+					entry.setNext(null);
+					break;
+				}
+				preEntry = entry;
+			}
+			array.set(index,arrayHead);
 		}
 
 		private void setValue(ReferenceEntry<K, V> newEntry, V value, long time) {
 			newEntry.setValue(value);
 			newEntry.setTime(time);
+			accessQueue.add(newEntry);
 		}
 
 		private ReferenceEntry<K,V> newEntry(K key, int hash, ReferenceEntry<K,V> next){
@@ -187,6 +204,7 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 			preWriteCleanup(new Date().getTime());
 			ReferenceEntry<K,V> entry = getEntry(key,hash);
 			if (entry != null){
+				accessQueue.add(entry);
 				return entry.getValue();
 			}else{
 				V value = loader.load(key);
