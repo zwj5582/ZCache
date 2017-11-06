@@ -4,8 +4,13 @@
 
 package o.z.w.j.cache;
 
+import java.lang.ref.ReferenceQueue;
+
 public interface ValueReference<K,V> {
 
-	V get(K key);
+	V get();
+
+	ValueReference<K, V> copyFor(
+			ReferenceQueue<V> queue, V value, ReferenceEntry<K, V> entry);
 
 }

@@ -4,6 +4,7 @@
 
 package o.z.w.j.cache;
 
+import java.lang.ref.ReferenceQueue;
 import java.util.concurrent.*;
 
 public class LoadingValueReference<K,V> implements ValueReference<K,V> {
@@ -22,7 +23,7 @@ public class LoadingValueReference<K,V> implements ValueReference<K,V> {
 	}
 
 	@Override
-	public V get(K k) {
+	public V get() {
 		try {
 			return future.get();
 		} catch (InterruptedException e) {
@@ -30,6 +31,11 @@ public class LoadingValueReference<K,V> implements ValueReference<K,V> {
 		} catch (ExecutionException e) {
 			e.printStackTrace();
 		}
+		return null;
+	}
+
+	@Override
+	public ValueReference<K, V> copyFor(ReferenceQueue<V> queue, V value, ReferenceEntry<K, V> entry) {
 		return null;
 	}
 }

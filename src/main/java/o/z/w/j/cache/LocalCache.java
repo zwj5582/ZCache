@@ -4,6 +4,7 @@
 
 package o.z.w.j.cache;
 
+import java.lang.ref.ReferenceQueue;
 import java.util.AbstractMap;
 import java.util.Date;
 import java.util.Queue;
@@ -28,9 +29,12 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 
 	final CacheLoader<? super K, V> defaultLoader;  // loader
 
-	public LocalCache(CacheLoader<K, V> loader, int concurrencyLevel, long expireTime, TimeUnit timeUnit){
+	final Strength strength;
+
+	public LocalCache(CacheLoader<K, V> loader, int concurrencyLevel, long expireTime, TimeUnit timeUnit,Strength strength){
 		this.expireTime = timeUnit.toMillis(expireTime);
 		this.unit = timeUnit;
+		this.strength = strength;
 
 		this.defaultLoader = loader;
 
@@ -111,9 +115,12 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 
 		final Queue<ReferenceEntry<K,V>> accessQueue;
 
+		final ReferenceQueue<V> valueReferenceQueue;
+
 		Segment(LocalCache<K,V> map,int size){
 			this.map = map;
 			this.accessQueue = new ConcurrentLinkedQueue<>();
+			valueReferenceQueue = map.strength.equals(Strength.STRONG) ? null : new ReferenceQueue<V>();
 			table = newEntryArray(size);
 		}
 
@@ -136,7 +143,7 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 					if (hashCode == hash){
 						ValueReference<K,V> oldValue = entry.getValue();
 						setValue(entry,oldValue,new Date().getTime());
-						return oldValue.get(key);
+						return oldValue.get();
 					}
 				}
 				ReferenceEntry<K,V> newEntry = newEntry(key,hash,first);
@@ -209,7 +216,7 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 				entry = getEntry(key,hash);
 				if (entry != null  && ( (entry.getTime() + this.map.expireTime) >= time ) ){
 					accessQueue.add(entry);
-					return (entry.getValue() == null) ? null : entry.getValue().get(key) ;
+					return (entry.getValue() == null) ? null : entry.getValue().get() ;
 				}else{
 					int index = hash & (table.length() - 1);
 					entry = ( entry != null && accessQueue.remove(entry) ) ?
@@ -225,7 +232,7 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 
 		private V loadSync(ReferenceEntry<K, V> entry) {
 			ValueReference<K, V> value = entry.getValue();
-			V result = value.get(entry.getKey());
+			V result = value.get();
 			entry.setTime(new Date().getTime());
 			return result;
 		}

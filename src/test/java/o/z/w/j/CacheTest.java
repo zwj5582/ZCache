@@ -6,6 +6,7 @@ package o.z.w.j;
 
 import o.z.w.j.cache.CacheLoader;
 import o.z.w.j.cache.LocalCache;
+import o.z.w.j.cache.Strength;
 import org.junit.Test;
 
 import java.util.concurrent.TimeUnit;
@@ -20,7 +21,7 @@ public class CacheTest {
 				System.out.println("===   " + key + "   ===");
 				return key*key;
 			}
-		},16,10 ,TimeUnit.SECONDS);
+		},16,10 ,TimeUnit.SECONDS, Strength.STRONG);
 
 		System.out.println(cache.get(17));
 		System.out.println(cache.put(25,13));
