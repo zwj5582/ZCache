@@ -93,8 +93,17 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 	}
 
 	@Override
+	public V remove(Object key) {
+		if (key==null)return null;
+		int hash = key.hashCode();
+		return segmentFor(hash).remove(key,hash);
+	}
+
+	@Override
 	public boolean remove(Object key, Object value) {
-		return false;
+		if (key == null) return false;
+		int hash = key.hashCode();
+		return segmentFor(hash).remove(key,hash,(V)value);
 	}
 
 	@Override
@@ -135,9 +144,7 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 				AtomicReferenceArray<ReferenceEntry<K, V>> referenceArray = this.table;
 				int index = hash & (table.length() - 1);
 				ReferenceEntry<K, V> first = referenceArray.get(index);
-				ReferenceEntry<K,V> preEntry = null;
 				for (ReferenceEntry<K,V> entry = first; entry !=null; entry=entry.next() ){
-					preEntry = entry;
 					K e = entry.getKey();
 					int hashCode = e.hashCode();
 					if (hashCode == hash){
@@ -147,21 +154,21 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 					}
 				}
 				ReferenceEntry<K,V> newEntry = newEntry(key,hash,first);
-				addNewEntry(newEntry,value,new Date().getTime(),preEntry,index);
+				addNewEntry(newEntry,value,new Date().getTime(),first,index);
 				return null;
 			}finally {
 				unlock();
 			}
 		}
 
-		private void addNewEntry(ReferenceEntry<K, V> newEntry, V value, long time, ReferenceEntry<K, V> preEntry,int index) {
-			newEntry.setValue(new StrongValueReference<K, V>(value));
+		private void addNewEntry(ReferenceEntry<K, V> newEntry, V value, long time, ReferenceEntry<K, V> first,int index) {
+			ValueReference<K,V> v = ( this.valueReferenceQueue == null ) ?
+					new StrongValueReference<K, V>(value) :
+					new SoftValueReference<K, V>(value, newEntry) ;
+			newEntry.setValue(v);
 			newEntry.setTime(time);
-			if (preEntry!=null)
-				preEntry.setNext(newEntry);
-			else{
-				this.table.set(index,newEntry);
-			}
+			newEntry.setNext(first);
+			this.table.set(index,newEntry);
 			accessQueue.add(newEntry);
 		}
 
@@ -176,25 +183,32 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 		private void removeFromArray(ReferenceEntry<K, V> peek) {
 			K key = peek.getKey();
 			int hash = key.hashCode();
-			ReferenceEntry<K,V> arrayHead = null;
 			AtomicReferenceArray<ReferenceEntry<K, V>> array = this.table;
 			int index = hash & (table.length() - 1);
 			ReferenceEntry<K, V> first = array.get(index);
-			ReferenceEntry<K,V> preEntry = null;
-			for ( ReferenceEntry<K,V> entry = first; entry != null; entry = entry.next() ) {
-				if (entry == peek) {
-					if (entry == first) {
-						arrayHead = entry.next();
-					} else {
-						preEntry.setNext(entry.next());
-						arrayHead = first;
-					}
-					entry.setNext(null);
-					break;
-				}
-				preEntry = entry;
+			ReferenceEntry<K,V> next = peek.next();
+			for (ReferenceEntry<K,V> entry = first; entry != peek && entry!=null; entry = entry.next()){
+				ReferenceEntry<K, V> newEntry = copyFor(entry,next);
+				if (newEntry != null)
+					next = newEntry;
+				else
+					this.accessQueue.remove(entry);
 			}
-			array.set(index,arrayHead);
+			array.set(index,next);
+		}
+
+		private ReferenceEntry<K,V> copyFor(ReferenceEntry<K, V> entry, ReferenceEntry<K, V> next) {
+			if (entry==null)return null;
+			ValueReference<K, V> entryValue = entry.getValue();
+			if (entryValue == null)return null;
+			V value = entryValue.get();
+			if (value == null)return null;
+			K entryKey = entry.getKey();
+			int hashCode = entryKey.hashCode();
+			ReferenceEntry<K, V> newEntry = newEntry(entryKey, hashCode, next);
+			newEntry.setValue(entryValue.copyFor(this.valueReferenceQueue,value,entry));
+			newEntry.setTime(new Date().getTime());
+			return newEntry;
 		}
 
 		private void setValue(ReferenceEntry<K, V> newEntry, ValueReference<K,V> value, long time) {
@@ -261,6 +275,54 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 		private ReferenceEntry<K,V> getFirst(int hash) {
 			AtomicReferenceArray<ReferenceEntry<K, V>> table = this.table;
 			return table.get(hash & (table.length() - 1));
+		}
+
+		public V remove(Object key, int hash) {
+			V result = null;
+			lock();
+			try {
+				long time = new Date().getTime();
+				preWriteCleanup(time);
+				ReferenceEntry<K, V> first = getFirst(hash);
+				for (ReferenceEntry<K,V> entry = first; entry != null; entry = entry.next()){
+					K k = entry.getKey();
+					ValueReference<K, V> entryValue = entry.getValue();
+					result = ( entryValue == null ) ? null : entryValue.get();
+					if (k.hashCode() == hash && k.equals(key)){
+						removeFromArray(entry);
+						accessQueue.remove(entry);
+						break;
+					}
+				}
+			}finally {
+				unlock();
+			}
+			return result;
+		}
+
+		public boolean remove(Object key, int hash, V value) {
+			boolean result = false;
+			lock();
+			try {
+				long time = new Date().getTime();
+				preWriteCleanup(time);
+				ReferenceEntry<K, V> first = getFirst(hash);
+				for (ReferenceEntry<K,V> entry = first; entry != null; entry = entry.next()){
+					K k = entry.getKey();
+					ValueReference<K, V> entryValue = entry.getValue();
+					if (k.hashCode() == hash && k.equals(key)){
+						if (entryValue != null && value.equals(entryValue.get())){
+							result = true;
+							removeFromArray(entry);
+							accessQueue.remove(entry);
+						}
+						break;
+					}
+				}
+			}finally {
+				unlock();
+			}
+			return result;
 		}
 	}
 

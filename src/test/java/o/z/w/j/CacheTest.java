@@ -21,7 +21,7 @@ public class CacheTest {
 				System.out.println("===   " + key + "   ===");
 				return key*key;
 			}
-		},16,10 ,TimeUnit.SECONDS, Strength.STRONG);
+		},16,10 ,TimeUnit.SECONDS, Strength.SOFT);
 
 		System.out.println(cache.get(17));
 		System.out.println(cache.put(25,13));
@@ -39,6 +39,32 @@ public class CacheTest {
 		}
 		System.out.println(cache.get(17));
 		System.out.println(cache.get(25));
+		try {
+			Thread.sleep(1000*3);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+		System.out.println(cache.get(17));
+		System.out.println(cache.get(25));
+
+		try {
+			Thread.sleep(1000*1);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+
+		System.out.println(cache.remove(17));
+		System.out.println(cache.remove(25));
+
+		try {
+			Thread.sleep(1000*1);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+
+		System.out.println(cache.get(17));
+		System.out.println(cache.get(25));
+
 	}
 
 }

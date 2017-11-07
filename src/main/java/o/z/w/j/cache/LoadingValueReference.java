@@ -36,6 +36,6 @@ public class LoadingValueReference<K,V> implements ValueReference<K,V> {
 
 	@Override
 	public ValueReference<K, V> copyFor(ReferenceQueue<V> queue, V value, ReferenceEntry<K, V> entry) {
-		return null;
+		return this;
 	}
 }
