@@ -9,6 +9,8 @@ import o.z.w.j.cache.LocalCache;
 import o.z.w.j.cache.Strength;
 import org.junit.Test;
 
+import java.util.Iterator;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 public class CacheTest {
@@ -64,7 +66,13 @@ public class CacheTest {
 
 		System.out.println(cache.get(17));
 		System.out.println(cache.get(25));
+		System.out.println(cache.get(28*28));
 
+		Set<Integer> set = cache.keySet();
+
+		for (Integer integer : set){
+			System.out.println(integer);
+		}
 	}
 
 }

@@ -5,10 +5,7 @@
 package o.z.w.j.cache;
 
 import java.lang.ref.ReferenceQueue;
-import java.util.AbstractMap;
-import java.util.Date;
-import java.util.Queue;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
@@ -87,6 +84,14 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 		return null;
 	}
 
+	Set<K> keySet;
+
+	@Override
+	public Set<K> keySet() {
+		Set<K> ks = keySet;
+		return (ks != null) ? ks : (keySet = new KeySet(this));
+	}
+
 	@Override
 	public V putIfAbsent(K key, V value) {
 		return null;
@@ -97,6 +102,14 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 		if (key==null)return null;
 		int hash = key.hashCode();
 		return segmentFor(hash).remove(key,hash);
+	}
+
+	Collection<V> values;
+
+	@Override
+	public Collection<V> values() {
+		Collection<V> vs = values;
+		return (vs != null) ? vs : (values = new Values(this));
 	}
 
 	@Override
@@ -327,4 +340,130 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 	}
 
 
+	abstract class HashIterator<T> implements Iterator<T> {
+
+		int currentSegmentIndex ;
+		int currentTableIndex;
+		ReferenceEntry<K,V> currentEntry;
+
+		@Override
+		public boolean hasNext() {
+			Segment<K,V> segment = null;
+			ReferenceEntry<K, V> entry = null;
+			while ( currentSegmentIndex < segments.length ){
+				if ((segment = segments[currentSegmentIndex]) == null){
+					currentSegmentIndex++;
+					currentTableIndex = 0;
+					continue;
+				}
+				AtomicReferenceArray<ReferenceEntry<K, V>> table = segment.table;
+				if (table == null || table.length() <= 0 ){
+					currentSegmentIndex++;
+					currentTableIndex = 0;
+					continue;
+				}
+				while (currentTableIndex < table.length()){
+					entry = table.get(currentTableIndex);
+					if (entry == null){
+						currentTableIndex++;continue;
+					}
+					if (entry.getTime() + expireTime < new Date().getTime()){
+						currentTableIndex++;continue;
+					}
+					ValueReference<K, V> value = entry.getValue();
+					if (value == null ){
+						currentTableIndex++;continue;
+					}
+					V v = value.get();
+					if ( v==null ){
+						currentTableIndex++;continue;
+					}
+					break;
+				}
+				if (entry == null ){
+					currentSegmentIndex++;
+					currentTableIndex = 0;
+					continue;
+				}
+				break;
+			}
+			if (entry == null)return false;
+			currentEntry = entry;
+			currentTableIndex++;
+			return true;
+		}
+
+		public abstract T next();
+
+		@Override
+		public void remove() {
+
+		}
+	}
+
+	final class KeySet extends AbstractSet<K>{
+
+		ConcurrentMap<K,V> map;
+
+		KeySet(ConcurrentMap<K,V> map){
+			this.map = map;
+		}
+
+		@Override
+		public Iterator<K> iterator() {
+			return new KeyIterator();
+		}
+
+		@Override
+		public int size() {
+			return map.size();
+		}
+	}
+
+	final class KeyIterator extends HashIterator<K>{
+
+		@Override
+		public K next() {
+			return super.currentEntry.getKey();
+		}
+
+	}
+
+	final class ValueIterator extends HashIterator<V>{
+
+		@Override
+		public V next() {
+			return super.currentEntry.getValue().get();
+		}
+
+	}
+
+	final class EntryIterator extends HashIterator<ReferenceEntry<K,V>>{
+
+		@Override
+		public ReferenceEntry<K, V> next() {
+			return super.currentEntry;
+		}
+
+	}
+
+
+	class Values extends AbstractSet<V> {
+
+		final ConcurrentMap<K,V> map;
+
+		public Values(ConcurrentMap<K,V> map) {
+			this.map = map;
+		}
+
+		@Override
+		public Iterator<V> iterator() {
+			return new ValueIterator();
+		}
+
+		@Override
+		public int size() {
+			return map.size();
+		}
+	}
 }
