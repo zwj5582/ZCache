@@ -348,9 +348,9 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 
 		@Override
 		public boolean hasNext() {
-			Segment<K,V> segment = null;
 			ReferenceEntry<K, V> entry = null;
 			while ( currentSegmentIndex < segments.length ){
+				Segment<K,V> segment = null;
 				if ((segment = segments[currentSegmentIndex]) == null){
 					currentSegmentIndex++;
 					currentTableIndex = 0;
@@ -364,20 +364,7 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 				}
 				while (currentTableIndex < table.length()){
 					entry = table.get(currentTableIndex);
-					if (entry == null){
-						currentTableIndex++;continue;
-					}
-					if (entry.getTime() + expireTime < new Date().getTime()){
-						currentTableIndex++;continue;
-					}
-					ValueReference<K, V> value = entry.getValue();
-					if (value == null ){
-						currentTableIndex++;continue;
-					}
-					V v = value.get();
-					if ( v==null ){
-						currentTableIndex++;continue;
-					}
+					if(!getLiveEntry(table.get(currentTableIndex)))continue;
 					break;
 				}
 				if (entry == null ){
@@ -390,6 +377,24 @@ public class LocalCache<K,V> extends AbstractMap<K, V> implements ConcurrentMap<
 			if (entry == null)return false;
 			currentEntry = entry;
 			currentTableIndex++;
+			return true;
+		}
+
+		private boolean getLiveEntry(ReferenceEntry<K, V> entry){
+			if (entry == null){
+				currentTableIndex++;return false;
+			}
+			if (entry.getTime() + expireTime < new Date().getTime()){
+				currentTableIndex++;return false;
+			}
+			ValueReference<K, V> value = entry.getValue();
+			if (value == null ){
+				currentTableIndex++;return false;
+			}
+			V v = value.get();
+			if ( v==null ){
+				currentTableIndex++;return false;
+			}
 			return true;
 		}
 
