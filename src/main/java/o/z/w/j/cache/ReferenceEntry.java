@@ -8,9 +8,9 @@ public interface ReferenceEntry<K,V> {
 
 	K getKey();
 
-	V getValue();
+	ValueReference<K,V> getValue();
 
-	void setValue(V value);
+	void setValue(ValueReference<K,V> value);
 
 	void setTime(long time);
 

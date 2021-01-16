@@ -28,18 +28,13 @@ public class StrongEntry<K,V> implements ReferenceEntry<K,V>{
 	}
 
 	@Override
-	public V getValue() {
-		return valueReference.get(key);
+	public ValueReference<K,V> getValue() {
+		return valueReference;
 	}
 
 	@Override
-	public void setValue(final V value) {
-		this.valueReference = new ValueReference<K, V>() {
-			@Override
-			public V get(K key) {
-				return value;
-			}
-		};
+	public void setValue(ValueReference<K,V> value) {
+		this.valueReference = value;
 	}
 
 	@Override
